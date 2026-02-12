@@ -1,143 +1,85 @@
 <template>
   <tr class="account-row">
-    <!-- Метки -->
-    <td style="vertical-align: top;">
-      <div v-if="!isEditing" class="labels-display">
-        <span v-for="(label, index) in account.labels" :key="index" class="label-tag">
-          {{ label.text }}
-        </span>
-        <span v-if="account.labels.length === 0" class="empty-label">—</span>
-      </div>
-      <div v-else class="labels-edit">
+    <td class="labels-cell">
+      <div class="labels-edit">
         <el-input
           v-model="localLabels"
           placeholder="Введите метки через ;"
           :maxlength="50"
-          @blur="validate"
+          size="default"
+          @blur="handleBlur"
         />
-        <div class="hint">Максимум 50 символов, разделитель ";"</div>
       </div>
     </td>
 
-    <!-- Тип записи -->
     <td>
-      <div v-if="!isEditing" class="type-display">
-        {{ account.type === 'local' ? 'Локальная' : 'LDAP' }}
-      </div>
       <el-select
-        v-else
         v-model="localType"
-        placeholder="Выберите тип"
-        @change="onTypeChange"
+        placeholder="Локальная"
+        size="default"
+        @change="handleTypeChange"
       >
         <el-option label="Локальная" value="local" />
         <el-option label="LDAP" value="ldap" />
       </el-select>
     </td>
 
-    <!-- Логин -->
     <td>
-      <div v-if="!isEditing" class="login-display">
-        {{ account.login }}
-      </div>
       <el-input
-        v-else
         v-model="localLogin"
         placeholder="Введите логин"
         :maxlength="100"
-        @blur="validate"
+        size="default"
+        @blur="handleBlur"
         :class="{ 'error-field': loginError }"
       />
     </td>
 
-    <!-- Пароль -->
     <td>
-      <div v-if="!isEditing" class="password-display">
-        {{ account.type === 'local' ? '••••••' : '' }}
-      </div>
       <el-input
-        v-else-if="localType === 'local'"
+        v-if="localType === 'local'"
         v-model="localPassword"
-        type="password"
+        :type="showEditPassword ? 'text' : 'password'"
         placeholder="Введите пароль"
         :maxlength="100"
+        size="default"
         show-password
-        @blur="validate"
+        @blur="handleBlur"
         :class="{ 'error-field': passwordError }"
       />
-      <div v-else class="password-display"></div>
+      <div v-else class="password-placeholder"></div>
     </td>
 
-    <!-- Кнопки действий -->
-    <td class="actions-cell">
-      <div v-if="isEditing" class="edit-actions">
-        <el-button 
-          type="primary" 
-          size="small" 
-          @click="save" 
-          :disabled="hasError"
-        >
-          Сохранить
-        </el-button>
-        <el-button 
-          v-if="!isNew" 
-          size="small" 
-          @click="cancel"
-        >
-          Отмена
-        </el-button>
-      </div>
-      <div v-else class="view-actions">
-        <el-button 
-          type="warning" 
-          size="small" 
-          @click="edit"
-        >
-          Изменить
-        </el-button>
-        <el-button 
-          type="danger" 
-          size="small" 
-          @click="remove"
-        >
-          Удалить
-        </el-button>
-      </div>
+    <td class="delete-cell">
+      <el-icon class="delete-icon" @click="remove">
+        <Delete />
+      </el-icon>
     </td>
   </tr>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref } from 'vue'
 import type { Account } from '@/types/account'
 import { useAccountsStore } from '@/stores/accounts'
+import { Delete } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   account: Account
-  isNew?: boolean
-}>()
-
-const emit = defineEmits<{
-  save: [id: string, labels: string, type: 'local' | 'ldap', login: string, password: string]
-  cancel: [id: string]
 }>()
 
 const accountsStore = useAccountsStore()
 
-// Локальные состояния для редактирования
 const localLabels = ref(props.account.labels.map(l => l.text).join('; '))
 const localType = ref<'local' | 'ldap'>(props.account.type)
 const localLogin = ref(props.account.login)
 const localPassword = ref(props.account.password || '')
 
-// Флаги ошибок
 const loginError = ref(false)
 const passwordError = ref(false)
 
-const isEditing = computed(() => props.account.isEditing)
-const hasError = computed(() => loginError.value || (localType.value === 'local' && passwordError.value))
+const showEditPassword = ref(false)
 
-// Валидация полей
 const validate = () => {
   loginError.value = !localLogin.value.trim()
   
@@ -148,87 +90,47 @@ const validate = () => {
   }
 }
 
-// Изменение типа записи
-const onTypeChange = () => {
+const save = () => {
+  const parsedLabels = accountsStore.parseLabels(localLabels.value)
+  
+  accountsStore.updateAccount(props.account.id, {
+    labels: parsedLabels,
+    type: localType.value,
+    login: localLogin.value,
+    password: localType.value === 'local' ? localPassword.value : null
+  })
+}
+
+const handleBlur = () => {
+  validate()
+  if (!loginError.value && !(localType.value === 'local' && passwordError.value)) {
+    save()
+  }
+}
+
+const handleTypeChange = () => {
   if (localType.value === 'ldap') {
     localPassword.value = ''
     passwordError.value = false
   }
   validate()
-}
-
-// Сохранение
-const save = () => {
-  validate()
-  if (!hasError.value) {
-    emit('save', props.account.id, localLabels.value, localType.value, localLogin.value, localPassword.value)
+  if (!loginError.value && !(localType.value === 'local' && passwordError.value)) {
+    save()
   }
 }
 
-// Редактирование
-const edit = () => {
-  accountsStore.editAccount(props.account.id)
-}
-
-// Удаление
 const remove = () => {
   accountsStore.deleteAccount(props.account.id)
 }
-
-// Отмена
-const cancel = () => {
-  if (props.isNew) {
-    accountsStore.deleteAccount(props.account.id)
-  } else {
-    // Восстанавливаем исходные значения
-    localLabels.value = props.account.labels.map(l => l.text).join('; ')
-    localType.value = props.account.type
-    localLogin.value = props.account.login
-    localPassword.value = props.account.password || ''
-    loginError.value = false
-    passwordError.value = false
-    emit('cancel', props.account.id)
-  }
-}
-
-// Автовалидация при изменении
-watch([localLogin, localPassword], () => {
-  if (isEditing.value) {
-    validate()
-  }
-})
 </script>
 
 <style scoped>
-.account-row {
-  transition: background-color 0.2s ease;
-}
-
 .account-row:hover {
-  background-color: #fafafa;
+  background-color: #f5f7fa;
 }
 
-/* Метки */
-.labels-display {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.label-tag {
-  background-color: #e8f4ff;
-  color: #1890ff;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 13px;
-  line-height: 1.4;
-  white-space: nowrap;
-}
-
-.empty-label {
-  color: #999;
-  font-style: italic;
-  line-height: 32px;
+.labels-cell {
+  vertical-align: top;
 }
 
 .labels-edit {
@@ -237,57 +139,75 @@ watch([localLogin, localPassword], () => {
   gap: 6px;
 }
 
-.hint {
-  font-size: 12px;
-  color: #666;
-  line-height: 1.4;
-}
-
-/* Тип записи, Логин, Пароль */
-.type-display,
-.login-display,
-.password-display {
+.password-placeholder {
   min-height: 32px;
   line-height: 32px;
   padding: 0 4px;
+  font-size: 14px;
+  color: #333;
 }
 
-/* Кнопки */
-.actions-cell {
-  width: 210px;
+.delete-cell {
+  width: 50px;
+  text-align: center;
+  vertical-align: middle;
 }
 
-.edit-actions,
-.view-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
+.delete-icon {
+  font-size: 18px;
+  color: #dc3545;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  opacity: 0.7;
 }
 
-/* Ошибки */
+.delete-icon:hover {
+  opacity: 1;
+  transform: scale(1.1);
+  color: #dc3545;
+}
+
 .error-field :deep(.el-input__wrapper) {
   box-shadow: 0 0 0 1px #f56c6c inset !important;
 }
 
-/* Адаптивность */
+:deep(.el-input__wrapper) {
+  width: 100%;
+}
+
+:deep(.el-select) {
+  width: 100%;
+}
+
+:deep(.el-input__suffix) {
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+}
+
+:deep(.el-input__suffix-inner) {
+  display: flex;
+  align-items: center;
+}
+
+:deep(.el-input__icon) {
+  font-size: 16px;
+  color: #909399;
+  transition: color 0.2s ease;
+}
+
+:deep(.el-input__icon:hover) {
+  color: #409eff;
+}
+
 @media (max-width: 768px) {
-  td {
-    padding: 12px 8px;
+  .account-row td {
+    padding: 12px;
   }
   
-  .label-tag {
-    font-size: 12px;
-    padding: 3px 8px;
-  }
-  
-  .edit-actions,
-  .view-actions {
-    flex-direction: column;
-    gap: 6px;
-  }
-  
-  .actions-cell {
-    width: auto;
+  .delete-cell {
+    background: white;
+    box-shadow: -2px 0 5px rgba(0,0,0,0.05);
   }
 }
 </style>
